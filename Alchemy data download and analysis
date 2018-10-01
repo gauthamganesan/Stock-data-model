@@ -1,0 +1,229 @@
+rm(list=ls())
+mainDir <- "C:/alchemy"  #Define Working Directory, where files would be saved
+fodir<-"fo"
+mwpldir<-"mwpl"
+if (file.exists(mainDir)){
+  setwd(file.path(mainDir))
+} else {
+  dir.create(file.path(mainDir))
+  setwd(file.path(mainDir))
+}
+if (!file.exists(fodir)){
+  dir.create(file.path(mainDir, fodir))
+}
+if (!file.exists(mwpldir)){
+ dir.create(file.path(mainDir, mwpldir))
+}
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(sqldf, dplyr, PerformanceAnalytics,tidyquant,stringr,taskscheduleR,data.table,knitr,miniUI,shiny)
+
+library(sqldf)
+library(dplyr)
+library(PerformanceAnalytics)
+library(tidyquant)
+library(stringr)
+
+#Define start and end dates, and convert them into date format "2017-03-02"
+endDate = as.Date(Sys.Date(), order="ymd")
+print(endDate)
+startDate = as.Date(endDate-180, order="ymd")
+#Sys.Date()
+
+myDate=startDate
+zippedFile <- tempfile() 
+ban <- tempfile()
+mwpl <- tempfile()
+lotsize <- tempfile()
+total<- NULL
+#if (file.exists("daily.csv"))
+#{ daily <- read.csv("daily.csv", sep = ",")
+ # daily$TIMESTAMP=as.Date(daily$TIMESTAMP,format="%d-%b-%Y") 
+ # maxDate<-sqldf("select max(TIMESTAMP) as maxdate from daily")
+ # myDate=as.Date(maxDate$maxdate, order="ymd")
+ # myDate<-myDate+1
+#}else 
+#{ daily<-tempfile()
+
+#}
+
+while (myDate <= endDate){
+  
+  foname=paste("fo", toupper(as.character(myDate, "%d%b%Y")), "bhav.csv", sep = "")
+  banname=paste("fo_secban_", toupper(as.character(myDate, "%d%m%Y")), ".csv", sep = "")
+  mwplname=paste("nseoi_", toupper(as.character(myDate, "%d%m%Y")), sep = "")
+  
+  #Generate URL
+  #https://www.nseindia.com/content/fo/fo_mktlots.csv
+  # https://www.nseindia.com/archives/nsccl/mwpl/nseoi_22062017.zip
+  #banlist = paste("https://www.nseindia.com/archives/fo/sec_ban/fo_secban_22062017.csv
+  foURL = paste("http://nseindia.com/content/historical/DERIVATIVES/", as.character(myDate, "%Y"), "/", toupper(as.character(myDate, "%b")), "/", foname, ".zip", sep = "")
+  banURL = paste("https://www.nseindia.com/archives/fo/sec_ban/", banname, sep = "")
+  mwplURL = paste("https://www.nseindia.com/archives/nsccl/mwpl/", mwplname,".zip", sep = "")
+  loturl = paste("https://www.nseindia.com/content/fo/fo_mktlots.csv")
+ 
+  tryCatch({
+    
+    
+    #Download Zipped File
+    download.file(loturl,lotsize, quiet=TRUE, mode="wb")
+    lots<- read.csv(lotsize,sep=",")
+    lots<-lots[,2:3]
+    colnames(lots)[2] <- 'SIZE'
+    lots$SYMBOL<-gsub("(^[[:space:]]+|[[:space:]]+$)", "", lots$SYMBOL)
+    lots$SYMBOL <-as.factor(lots$SYMBOL)
+    
+    setwd(file.path(mainDir, fodir))
+    if (!file.exists(foname) )
+    {download.file(foURL,zippedFile, quiet=TRUE, mode="wb")
+      unzip(zippedFile)
+    }
+    fodat <- read.csv(foname, sep = ",")
+    #setwd('D:/stocks/alldata/ban')
+    #if (!file.exists(banname))
+    #{download.file(banURL,banname, quiet=TRUE, mode="wb")
+    # bandat<-read.table(banname, sep = ",")
+    # bandat$date <- rep(myDate,nrow(bandat))
+    # write.table(bandat,file=banname,sep=",", eol="\n", row.names = FALSE, col.names = c("Banlist","Date"), append=FALSE)
+   
+  #  }
+  #  bandat<-read.csv(banname,sep=",")
+    setwd(file.path(mainDir, mwpldir))
+    mwplcsv <-paste(mwplname,".csv",sep="")
+    if (!file.exists(mwplcsv))
+    {download.file(mwplURL,mwpl, quiet=TRUE, mode="wb")
+     unzip(mwpl)
+    }
+    mwpldat <- read.csv(mwplcsv, sep = ",")
+    
+ 
+    #Reorder Columns and Select relevant columns
+    indx<- subset(fodat,INSTRUMENT == "FUTIDX" & SYMBOL == "NIFTY"  )
+    indx<-subset(indx,select=c("SYMBOL","EXPIRY_DT","CLOSE","SETTLE_PR","OPEN_INT","CHG_IN_OI","TIMESTAMP"))
+    indx$EXPIRY_DT=as.Date(indx$EXPIRY_DT,format="%d-%b-%Y")
+    indx$TIMESTAMP=as.Date(indx$TIMESTAMP,format="%d-%b-%Y")
+    #indx$SYMBOL<-as.character(indx$SYMBOL)
+    #indx$SYMBOL<-str_replace_all(lots$SYMBOL, "[^[:alnum:]]", "")
+    
+    fodat<- subset(fodat, INSTRUMENT == "FUTSTK"  )
+    fodat<-subset(fodat,select=c("SYMBOL","EXPIRY_DT","CLOSE","SETTLE_PR","OPEN_INT","CHG_IN_OI","TIMESTAMP"))
+    fodat$EXPIRY_DT=as.Date(fodat$EXPIRY_DT,format="%d-%b-%Y")
+    fodat$TIMESTAMP=as.Date(fodat$TIMESTAMP,format="%d-%b-%Y")
+    #fodat$SYMBOL<-as.character(fodat$SYMBOL)
+    #fodat$SYMBOL<-str_replace_all(fodat$SYMBOL, "[^[:alnum:]]", "")
+    #mwpldat$'NSE.Symbol'<-as.character(mwpldat$'NSE.Symbol')
+    #mwpldat$'NSE.Symbol'<-str_replace_all(mwpldat$'NSE.Symbol', "[^[:alnum:]]", "")
+    
+    
+    
+    
+    mwpldat$Date=as.Date(myDate, format="%d-%b-%Y")
+   # bandat$Date=as.Date(bandat$Date)
+    
+    cmb<- sqldf("select 
+                 t1.SYMBOL as SYMBOL,
+                 t1.TIMESTAMP as TIMESTAMP,
+                 t1.SETTLE_PR as PRICE,
+                 sum(t1.OPEN_INT) as OPEN_INT,
+                 t2.SETTLE_PR as NIFTY,
+                 t3.MWPL as MWPL,
+                 round(100*t3.'NSE.Open.Interest'/t3.MWPL) as MWPLPERCENT
+                 from (select * from fodat where EXPIRY_DT<>TIMESTAMP) t1 
+                 left join indx t2 
+                 on t1.timestamp=t2.timestamp and t1.expiry_dt =t2.expiry_dt
+                 left join mwpldat t3
+                 on t1.timestamp=t3.Date and t1.symbol=t3.'NSE.Symbol'
+                 group by t1.timestamp, t1.symbol
+                 having t1.EXPIRY_DT=min(t1.EXPIRY_DT)   
+                 order by t1.symbol, t1.timestamp ")
+    
+    
+    total<-rbind(total,data.frame(cmb))
+    
+    
+
+  }, error=function(err){
+  }
+    )
+  myDate <- myDate+1
+}
+
+total <- total[order(total$SYMBOL, total$TIMESTAMP),]
+
+final<-total %>%
+  group_by(SYMBOL) %>%
+  mutate(percent_diffpr = round(100*(PRICE - lag(PRICE))/ lag(PRICE),digits=2),percent_diffop = round(100*(OPEN_INT - lag(OPEN_INT))/ lag(OPEN_INT),digits=2),percent_diffnf = round(100*(NIFTY - lag(NIFTY))/ lag(NIFTY),digits=2))
+
+betadat <-sqldf("select * from final where SYMBOL in (select SYMBOL from final group by SYMBOL having count(SYMBOL)>60)")
+
+betadat<-betadat %>%
+  group_by(SYMBOL) %>%
+  tq_mutate(
+    mutate_fun = rollapply,
+    width      = 60,
+    FUN = function(Z)
+    {
+      t = lm(formula=percent_diffpr~percent_diffnf, data = as.data.frame(Z), na.rm=TRUE);
+      return(t$coef)
+    },
+    by.column  = FALSE,
+    col_rename = c("alpha", "beta"))
+
+
+
+final<- sqldf("select t1.*,
+              round(t2.alpha,2) as alpha,
+              round(t2.beta,2) as beta,
+              case when percent_diffpr>=0 and percent_diffop>0 then 'NL' 
+              when percent_diffpr>=0 and percent_diffop<0 then 'SC' 
+              when percent_diffpr<=0 and percent_diffop>0 then 'NS' 
+              when percent_diffpr<=0 and percent_diffop<0 then 'LU' end as trend,
+              case  when abs(percent_diffop) > 10 or abs(percent_diffpr) > 10 then 99
+              when abs(percent_diffop) > 3 and abs(percent_diffpr) > 3 then 22
+              when abs(percent_diffop) > 3 and abs(percent_diffpr) > 1.5 then 21
+              when abs(percent_diffop) > 3 and abs(percent_diffpr) > 0 then 20
+              when abs(percent_diffop) > 1.5 and abs(percent_diffpr) > 3 then 12
+              when abs(percent_diffop) > 1.5 and abs(percent_diffpr) > 1.5 then 11
+              when abs(percent_diffop) > 1.5 and abs(percent_diffpr) > 0 then 10
+              when abs(percent_diffop) > 0 and abs(percent_diffpr) > 3 then 02
+              when abs(percent_diffop) > 0 and abs(percent_diffpr) > 1.5 then 01
+              when abs(percent_diffop) > 0 and abs(percent_diffpr) > 0 then 00 end as token,
+              t3.SIZE as Lotsize
+              
+              from final t1 left join (select SYMBOL,TIMESTAMP,alpha, beta from betadat) t2 on t1.SYMBOL=t2.SYMBOL and t1.TIMESTAMP=t2.TIMESTAMP
+              left join lots t3 on t1.SYMBOL=t3.SYMBOL")
+
+#if(is.data.frame(daily) && nrow(daily)>0)
+#{
+#tempap<-sqldf("select * from final where timestamp not in (Select timestamp from daily)")
+#final<-rbind(data.frame(daily),tempap)
+#}
+
+final<-sqldf("select  * from final where SYMBOL not in ('ABIRLANUVO','CAIRN','CROMPGREAV','MCLEODRUSS') order by SYMBOL,TIMESTAMP desc")
+
+setwd(mainDir)
+write.table(final,file="daily.csv",sep=",", eol="\n", row.names = FALSE, col.names = TRUE, append=FALSE)
+
+
+#analysis 
+a <- final %>% 
+  group_by(SYMBOL) %>%  
+  do(head(., n=5))
+
+b<- sqldf("select *,case when token>11 then trend else '_' end as tokenhighflow from a order by SYMBOL,TIMESTAMP")
+
+c<- sqldf("select *,
+          count(trend) as trendcnt,
+          group_concat(token) as tokenseries5day,
+          group_concat(trend) as trendseries5day,
+          group_concat(tokenhighflow) as trendserieshighflow,
+          sum(case when trend ='NS' then 1 else 0 end) as CountNS,
+          sum(case when trend ='NL' then 1 else 0 end) as CountNL,
+          sum(case when trend ='SC' then 1 else 0 end) as CountSC,
+          sum(case when trend ='LU' then 1 else 0 end) as CountLU
+          from b
+          group by SYMBOL
+          order by  token desc")
+
+write.table(c,file="analysis.csv",sep=",", eol="\n", row.names = FALSE, col.names = TRUE, append=FALSE)
+
